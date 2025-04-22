@@ -95,13 +95,22 @@ for i in range(12):
 # Convert list of predicted sales rows into DataFrame
 future_df = pd.DataFrame(predicted_sales)
 
+# Write predicted sales to a new CSV file
+future_df.to_csv('predicted_sales.csv', index=False)
 
 # === Plotting ===
 plt.figure(figsize=(12, 6))
-plt.plot(agg['Date'], agg['Actual Sales'], label='Historical Sales', color='blue', marker='o')
-plt.plot(future_df['Date'], future_df['Actual Sales'], label='Predicted Sales', color='orange', linestyle='--', marker='o')
 
-plt.title('Total Weekly Sales Forecast (Capped at 70,000)')
+# Plotting the historical sales with a solid line and no markers
+plt.plot(agg['Date'], agg['Actual Sales'], label='Historical Sales', color='blue', linestyle='-', marker='')
+
+# Append the first predicted sales point to the historical data for a seamless connection
+future_df.iloc[0, future_df.columns.get_loc('Actual Sales')] = agg['Actual Sales'].iloc[-1]
+
+# Plotting the predicted sales with a solid line and no markers
+plt.plot(future_df['Date'], future_df['Actual Sales'], label='Predicted Sales', color='orange', linestyle='-', marker='')
+
+plt.title('Total Weekly Sales Forecast')
 plt.xlabel('Week')
 plt.ylabel('Total Sales')
 plt.grid(True)
