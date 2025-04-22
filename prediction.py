@@ -1,83 +1,111 @@
 import pandas as pd
 import numpy as np
-import xgboost as xgb
+import matplotlib.pyplot as plt
 from xgboost import XGBRegressor
-from sklearn.metrics import mean_squared_error
+from datetime import timedelta
 
-# Step 1: Import the dataset
-file_path = 'ramesh-predicted-Hackathon-data.csv'
-df = pd.read_csv(file_path, parse_dates=['Date'])
-
-# Ensure the 'Date' column is in datetime format
+# Load data
+df = pd.read_csv('ramesh-predicted-Hackathon-data.csv', parse_dates=['Date'])
 df['Date'] = pd.to_datetime(df['Date'])
 
-# Apply consistent log1p transformation
-df['Log_Sales'] = np.log1p(df['Actual Sales'])
+# Cap sales at 70,000
+df['Actual Sales'] = df['Actual Sales'].clip(upper=70000)
 
-# Sort the dataframe by Date (important for time series)
-df = df.sort_values('Date').reset_index(drop=True)
+# Sum total sales per week
+agg = df.groupby('Date').agg({
+    'Actual Sales': 'sum',
+    'Sales_Lag1': 'sum',
+    'Sales_Lag2': 'sum',
+    'Sales_Lag3': 'sum',
+    'Sales_Lag4': 'sum',
+    'Sales_Lag8': 'sum',
+    'Rolling_Mean_4': 'mean',
+    'Rolling_Mean_8': 'mean',
+    'Rolling_Sum_4': 'sum',
+    'Rolling_Std_4': 'mean',
+    'Sin_Week': 'mean',
+    'Cos_Week': 'mean',
+    'Sin_Month': 'mean',
+    'Cos_Month': 'mean',
+    'Quarter': 'first',
+    'Week_of_Year': 'first'
+}).reset_index()
 
+# Drop NA (initial rows without lag/rolling features)
+agg = agg.dropna().reset_index(drop=True)
+
+# Define features
 features = [
     'Sales_Lag1', 'Sales_Lag2', 'Sales_Lag3', 'Sales_Lag4',
     'Sales_Lag8', 'Rolling_Mean_4', 'Rolling_Mean_8',
-    'Rolling_Sum_4', 'Rolling_Std_4', 'Part_ID_Count',
+    'Rolling_Sum_4', 'Rolling_Std_4',
     'Sin_Week', 'Cos_Week', 'Sin_Month', 'Cos_Month',
     'Quarter', 'Week_of_Year'
 ]
-target = 'Actual Sales'
 
-train = df.iloc[:-12]
-test = df.iloc[-12:]
-
+# Train XGBoost
 model = XGBRegressor(n_estimators=100, learning_rate=0.1)
-model.fit(train[features], train[target])
+model.fit(agg[features], agg['Actual Sales'])
 
-future_preds = []
+# Predict next 12 weeks
+predicted_sales = []
+last_row = agg.iloc[-1].copy()
 
-current_df = test.copy()
+recent_sales = list(agg['Actual Sales'][-8:])  # use 8 because of lag8
+
 for i in range(12):
-    pred = model.predict(current_df[features].iloc[[i]])[0]
-    future_preds.append(pred)
+    next_date = last_row['Date'] + timedelta(weeks=1)
+    new_row = last_row.copy()
+    new_row['Date'] = next_date
+
+    # Update lag values
+    new_row['Sales_Lag1'] = recent_sales[-1]
+    new_row['Sales_Lag2'] = recent_sales[-2]
+    new_row['Sales_Lag3'] = recent_sales[-3]
+    new_row['Sales_Lag4'] = recent_sales[-4]
+    new_row['Sales_Lag8'] = recent_sales[-8]
+
+    # Rolling features from recent sales
+    new_row['Rolling_Mean_4'] = np.mean(recent_sales[-4:])
+    new_row['Rolling_Mean_8'] = np.mean(recent_sales[-8:])
+    new_row['Rolling_Sum_4'] = np.sum(recent_sales[-4:])
+    new_row['Rolling_Std_4'] = np.std(recent_sales[-4:])
+
+    # Date-based features
+    week = next_date.isocalendar().week
+    new_row['Week_of_Year'] = week
+    new_row['Quarter'] = pd.Timestamp(next_date).quarter
+    new_row['Sin_Week'] = np.sin(2 * np.pi * week / 52)
+    new_row['Cos_Week'] = np.cos(2 * np.pi * week / 52)
+    new_row['Sin_Month'] = np.sin(2 * np.pi * next_date.month / 12)
+    new_row['Cos_Month'] = np.cos(2 * np.pi * next_date.month / 12)
+
+    # Predict
+    pred = model.predict(pd.DataFrame([new_row])[features])[0]
+    # pred = min(pred, 70000)
+    new_row['Actual Sales'] = pred
+    predicted_sales.append(new_row)
     
-    # Update next row lag features with this prediction
-    if i + 1 < 12:
-        current_df.at[current_df.index[i+1], 'Sales_Lag1'] = pred
-        # Shift lag features down manually
-        for lag in [2, 3, 4]:
-            current_df.at[current_df.index[i+1], f'Sales_Lag{lag}'] = current_df.at[current_df.index[i], f'Sales_Lag{lag-1}']
+    recent_sales.append(pred)
+    if len(recent_sales) > 8:
+        recent_sales.pop(0)
 
-import matplotlib.pyplot as plt
-from datetime import timedelta
+    last_row = new_row
 
-# Get the last known date from the dataset
-last_date = df['Date'].max()
+# Convert list of predicted sales rows into DataFrame
+future_df = pd.DataFrame(predicted_sales)
 
-# Generate next 12 week dates
-future_dates = [last_date + timedelta(weeks=i+1) for i in range(12)]
 
-# Assuming 'df' has all historical data including 2023 onwards and 'Date' column is already in datetime
-start_date = pd.to_datetime('2023-01-02')  # Approximate start of ISO week 2023-01
-last_date = df['Date'].max()
-future_dates = [last_date + timedelta(weeks=i+1) for i in range(12)]
-
-# Combine full date range
-full_range_start = start_date
-full_range_end = future_dates[-1]
-
-# Plot predictions
+# === Plotting ===
 plt.figure(figsize=(12, 6))
-plt.plot(future_dates, future_preds, label='Predicted Sales', marker='o', linestyle='--', color='orange')
+plt.plot(agg['Date'], agg['Actual Sales'], label='Historical Sales', color='blue', marker='o')
+plt.plot(future_df['Date'], future_df['Actual Sales'], label='Predicted Sales', color='orange', linestyle='--', marker='o')
 
-# Customize axis
-plt.title('Forecasted Sales for Next 12 Weeks')
+plt.title('Total Weekly Sales Forecast (Capped at 70,000)')
 plt.xlabel('Week')
-plt.ylabel('Predicted Sales')
-plt.xticks(rotation=45)
+plt.ylabel('Total Sales')
 plt.grid(True)
-
-# Set x-axis to span from 202301 to end of prediction
-plt.xlim(full_range_start, full_range_end)
-
+plt.xticks(rotation=45)
 plt.tight_layout()
 plt.legend()
 plt.show()
