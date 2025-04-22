@@ -43,7 +43,7 @@ print("=================")
 print(df.head(3))
 
 # Save the cleaned data to a new CSV file
-cleaned_file_path = 'cleaned_Hackathon-data.csv'
+cleaned_file_path = 'ramesh-predicted-Hackathon-data.csv'
 df.to_csv(cleaned_file_path, index=False)
 
 print(f"Cleaned data saved to: {cleaned_file_path}")
