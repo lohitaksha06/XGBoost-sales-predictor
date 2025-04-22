@@ -42,7 +42,7 @@ def add_features(df):
 df_sales = add_features(df_sales)
 
 # Save the updated DataFrame to a new CSV file
-output_file_path = "Updated_Sales_Data.csv"
+output_file_path = "Lohit-predicted_Sales_Data.csv"
 df_sales.to_csv(output_file_path, index=False)
 
 print(f"Updated data saved to {output_file_path}")
